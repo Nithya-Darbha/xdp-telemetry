@@ -107,3 +107,63 @@ stays meaningful. The AF_PACKET baseline must handle this too (phase 8).
 **What tests cannot reach.** The kernel refuses to transmit frames shorter
 than 14 bytes, so `eth_trunc` is only testable with `BPF_PROG_TEST_RUN`
 (phase 10). Everything else was checked live through XDP on `mon0`.
+
+## Maps (phase 4)
+
+| map | type | key -> value | why this type |
+|---|---|---|---|
+| `xdpt_counters` | PERCPU_ARRAY | counter id -> u64 | hot path, no atomics, summed in userspace |
+| `xdpt_sizes` | PERCPU_ARRAY | 64-byte bucket -> u64 | same |
+| `xdpt_flows` | LRU_HASH, 65536 | 5-tuple -> `flow_stats` | bounded memory, idle flows evicted first |
+| `xdpt_srcs` | LRU_HASH, 16384 | saddr -> `src_window` | per-source windows and fan-out sketches |
+| `xdpt_events` | RINGBUF, 256 KB | `xdpt_event` | per-packet alerts with low latency |
+
+**Shared flow hash, not per-CPU.** `LRU_PERCPU_HASH` would multiply memory
+by the CPU count and split one flow across CPUs. On a real NIC, RSS keeps a
+flow on one queue and one CPU, so the atomic adds rarely contend. `pkts`,
+`bytes`, `syn`, `rst` and `flags_seen` are atomic; `last_ns`, `min_len` and
+`max_len` are plain stores and can be off by one packet under contention.
+
+**Insert race.** Two CPUs can miss the same new flow at once. Both call
+`bpf_map_update_elem(..., BPF_NOEXIST)`; one wins, the other fails
+harmlessly, and both find the same entry on the second lookup.
+
+**Atomics need `-mcpu=v3`.** `__sync_fetch_and_add` without a used result
+compiles on any BPF ISA, but atomic OR (`flags_seen`, sketch bits) needs the
+v3 atomic instructions, kernel 5.12+. `flags_seen` is 32-bit because BPF
+atomics only operate on 32- and 64-bit words.
+
+**Tumbling windows without userspace writes.** Each source has two slots;
+epoch `E = ktime_ns / window_ns` writes slot `E & 1`, and the kernel clears a
+slot the first time it sees a new epoch there. Userspace reads slot
+`(E-1) & 1` after window `E-1` closes and trusts it only if its epoch matches.
+Nothing in userspace ever resets a counter, so there is no reset race. The
+cost: two CPUs hitting the same source at a window edge can both clear the
+slot and drop a few bits.
+
+**Fan-out sketches.** Per window and source, a 1024-bit bitmap of hashed
+destination ports and a 512-bit bitmap of hashed destination IPs. Userspace
+estimates distinct counts with linear counting, `n ≈ m ln(m / zeros)`. That
+is accurate to a few percent up to roughly the bitmap size and saturates
+beyond it, which is fine because detection thresholds sit far below that.
+Values are hashed with the murmur3 finalizer first, because sequential scans
+would otherwise fill adjacent bits in a pattern.
+
+**Stack limit.** The 464-byte `src_window` insert template did not fit on
+the 512-byte BPF stack alongside the parser state; clang refused with "BPF
+stack limit is exceeded". It now lives in `.rodata` (global data, which
+libbpf backs with an array map), and a map value pointer is a valid
+argument to `bpf_map_update_elem`.
+
+**Events.** Illegal TCP flag combinations and malformed frames go to the
+ring buffer immediately. `bpf_ringbuf_submit(e, 0)` lets the kernel decide
+on wakeups: the reader is woken only if it had caught up, so a burst costs
+one wakeup. A full ring increments `XDPT_C_EV_DROP` instead of blocking.
+
+**Runtime config** (`cfg_window_ns`, `cfg_events`) is `const volatile` in
+`.rodata`, set through the skeleton before load. The verifier then treats it
+as a known constant and can prune dead branches.
+
+Checked with normal traffic (HTTP and ping in the netns test bed): flows,
+per-flow SYN and `flags_seen`, alternating window slots, sketches and size
+buckets all match what was sent.

@@ -50,7 +50,7 @@ function(bpf_add_object name src)
   set(skel ${CMAKE_CURRENT_BINARY_DIR}/${name}.skel.h)
   add_custom_command(
     OUTPUT ${obj}
-    COMMAND ${BPF_CLANG} -g -O2 -target bpf -Wall -Werror
+    COMMAND ${BPF_CLANG} -g -O2 -target bpf -mcpu=v3 -Wall -Werror
             -I${CMAKE_SOURCE_DIR}/include -I${CMAKE_SOURCE_DIR}/bpf
             -I/usr/include/${MULTIARCH}
             -MD -MF ${obj}.d

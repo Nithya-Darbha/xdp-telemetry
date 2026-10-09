@@ -10,7 +10,7 @@ Work in progress. Built phase by phase; the commit history shows each step.
 - [x] 1. Environment checks, test topology, design decisions
 - [x] 2. Repository layout and BPF build pipeline
 - [x] 3. Verifier-safe packet parser
-- [ ] 4. BPF maps (flows, fan-out, histograms, events)
+- [x] 4. BPF maps (flows, fan-out, histograms, events)
 - [ ] 5. Userspace collector
 - [ ] 6. Flow and statistical logic
 - [ ] 7. Anomaly detection
