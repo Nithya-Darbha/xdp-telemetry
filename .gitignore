@@ -1,0 +1,7 @@
+build/
+*.o
+*.skel.h
+compile_commands.json
+.cache/
+__pycache__/
+bench/results/raw/
