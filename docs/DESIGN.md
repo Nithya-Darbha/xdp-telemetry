@@ -167,3 +167,41 @@ as a known constant and can prune dead branches.
 Checked with normal traffic (HTTP and ping in the netns test bed): flows,
 per-flow SYN and `flags_seen`, alternating window slots, sketches and size
 buckets all match what was sent.
+
+## Collector (phase 5)
+
+`BpfEngine` turns the maps into a `WindowSnapshot` once per window. The
+snapshot type lives in `include/core/` with no libbpf in it, so the
+AF_PACKET baseline (phase 8) fills the same struct and detection (phase 7)
+never knows which engine ran.
+
+**Window alignment.** The loop wakes on the same epoch grid the kernel uses
+(`next = (now/window + 1) * window`, CLOCK_MONOTONIC). On tick for window E it
+reads source slot `(E-1) & 1` and trusts it only if `slot.epoch == E-1`, so it
+always reads the slot the kernel has stopped writing, never the live one.
+
+**Deltas, not resets.** Global counters and the size histogram are cumulative
+and monotonic in the kernel. The engine keeps the previous totals and reports
+per-window deltas. Nothing in userspace writes to a counter, so there is no
+reset race with the hot path.
+
+**Flow aging.** The LRU map evicts under pressure on its own. The engine also
+drops flows idle longer than `flow_ttl_ns` from the userspace view, collecting
+keys during the `bpf_map_get_next_key` walk and deleting them after, so the
+iterator is never disturbed mid-traversal.
+
+**Events.** `ring_buffer__poll` runs with a timeout sized to the gap until the
+next boundary, so events drain as they arrive rather than once per window. The
+callback copies each record out with memcpy because ring data may be unaligned.
+Verified live: 5 malformed frames produced exactly 5 events.
+
+**Config before load.** `telemetry__open`, set `cfg_window_ns` / `cfg_events`
+in `.rodata`, then `telemetry__load`. The verifier sees the config as constant
+and prunes dead branches (the whole event path compiles out when events are off).
+
+**Self-cost.** Every snapshot carries `collect_us`, the wall-clock time to read
+all maps. In the netns tests it sits around 300us per window for a handful of
+flows, which is the number phase 9 tracks as the collector grows.
+
+Output is a human line plus optional JSONL (`-j`), one flat object per window,
+hand-rolled with no JSON dependency. Phase 9's analysis reads the JSONL.

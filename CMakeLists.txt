@@ -76,10 +76,11 @@ add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall> $<$<COMPILE_LANGUAGE:CXX>:-
 
 bpf_add_object(telemetry bpf/telemetry.bpf.c)
 
-add_executable(xdpt src/collector/main.cpp)
-target_include_directories(xdpt PRIVATE include)
+add_executable(xdpt
+  src/collector/main.cpp
+  src/collector/bpf_engine.cpp)
+target_include_directories(xdpt PRIVATE include bpf src/collector)
 target_link_libraries(xdpt PRIVATE telemetry_skel)
-target_include_directories(xdpt PRIVATE bpf)
 
 # ---------------------------------------------------------------------------
 # Tests: parse.h compiled as userspace C++ under ASan/UBSan
