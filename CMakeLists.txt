@@ -76,8 +76,8 @@ add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall> $<$<COMPILE_LANGUAGE:CXX>:-
 
 bpf_add_object(telemetry bpf/telemetry.bpf.c)
 
-# Engine-independent telemetry logic (snapshot stats, report). No libbpf.
-add_library(xdpt_core STATIC src/core/report.cpp)
+# Engine-independent telemetry logic (snapshot stats, report, detection). No libbpf.
+add_library(xdpt_core STATIC src/core/report.cpp src/core/detect.cpp)
 target_include_directories(xdpt_core PUBLIC include bpf)
 
 add_executable(xdpt
@@ -104,4 +104,10 @@ if(XDPT_BUILD_TESTS)
   target_compile_options(stats_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(stats_test PRIVATE -fsanitize=address,undefined)
   add_test(NAME stats COMMAND stats_test)
+
+  add_executable(detect_test tests/detect_test.cpp src/core/detect.cpp src/core/report.cpp)
+  target_include_directories(detect_test PRIVATE include bpf)
+  target_compile_options(detect_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(detect_test PRIVATE -fsanitize=address,undefined)
+  add_test(NAME detect COMMAND detect_test)
 endif()

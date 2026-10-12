@@ -29,6 +29,10 @@ struct WindowReport {
 	double   dt = 0;
 	double   pps = 0;
 	double   mbps = 0;
+	double   syn_pps = 0;          // half-open SYN rate (global)
+	uint64_t win_pkts = 0;         // packets this window
+	uint64_t win_bytes = 0;        // bytes this window
+	uint64_t win_malformed = 0;    // malformed frames this window
 	uint32_t size_p50 = 0;
 	uint32_t size_p90 = 0;
 	uint32_t size_p99 = 0;

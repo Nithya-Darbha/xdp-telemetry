@@ -10,9 +10,15 @@ WindowReport build_report(const WindowSnapshot &snap, const ReportConfig &cfg)
 	r.seq = snap.seq;
 	r.dt = snap.dt;
 
+	r.win_pkts = snap.d(XDPT_C_PKTS);
+	r.win_bytes = snap.d(XDPT_C_BYTES);
+	for (int p = XDPT_P_ERR_FIRST; p < XDPT_P__MAX; p++)
+		r.win_malformed += snap.delta[XDPT_C_RESULT_BASE + p];
+
 	if (snap.dt > 0) {
-		r.pps = static_cast<double>(snap.d(XDPT_C_PKTS)) / snap.dt;
-		r.mbps = static_cast<double>(snap.d(XDPT_C_BYTES)) * 8.0 / 1e6 / snap.dt;
+		r.pps = static_cast<double>(r.win_pkts) / snap.dt;
+		r.mbps = static_cast<double>(r.win_bytes) * 8.0 / 1e6 / snap.dt;
+		r.syn_pps = static_cast<double>(snap.d(XDPT_C_SYN)) / snap.dt;
 	}
 
 	r.size_p50 = size_percentile(snap.size_delta, 0.50);

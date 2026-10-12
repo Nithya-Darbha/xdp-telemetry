@@ -235,3 +235,40 @@ case stays linear in the flow count.
 
 Both suites run under ASan and UBSan. The collector prints p50/p99 and a
 per-source fan-out line, which is the raw material phase 7 turns into alerts.
+
+## Anomaly detection (phase 7)
+
+`Detector::evaluate(WindowReport)` returns a list of `Alert`s. It depends only
+on the report, so it runs identically over the XDP engine and the AF_PACKET
+baseline. Two rule families:
+
+**Per-window thresholds** (the window is its own evidence):
+* port scan: a source's estimated distinct dst ports >= threshold (default 100)
+* IP sweep: estimated distinct dst IPs >= threshold (default 50)
+* SYN flood: half-open SYNs from one source >= threshold
+* bad flags: illegal TCP flag packets from one source >= threshold
+* heavy hitter: one flow is >= 80% of window bytes
+
+A saturated sketch raises the scan/sweep alert even when the estimate reads
+below threshold, since saturation means "at least the floor", never less.
+
+**Baseline deviation** (learned, not fixed):
+* global packet-rate spike and SYN-rate spike, each flagged when the rate is
+  `z_threshold` sigmas (default 6) above an EWMA baseline.
+
+The baseline updates *after* each window is scored, so a window is never
+compared against a baseline that already contains it, and the first few windows
+never raise a rate spike because the baseline is not yet trustworthy. The
+z-score has an absolute standard-deviation floor so a dead-quiet baseline does
+not turn one busy window into a false alarm.
+
+Why scans are thresholds and rate spikes are baselines: a port scan is defined
+by its fan-out, not by being faster than normal, so a fixed fan-out threshold
+is the honest rule. A volumetric flood, on the other hand, is only meaningful
+relative to what the link normally carries, which is what the EWMA captures.
+
+Verified live: an `nmap -sS` scan of 2000 ports produced a port-scan alert
+(sketch estimate ~2045 distinct ports against 2000 real), a SYN-flood alert,
+and both rate-spike alerts. Unit tests drive every rule from synthetic reports,
+including a clean-traffic case that must stay silent and a cold-start case that
+must not raise a rate spike.

@@ -20,6 +20,7 @@
 #include <arpa/inet.h>
 
 #include "bpf_engine.h"
+#include "core/detect.h"
 #include "core/report.h"
 #include "core/snapshot.h"
 #include "shared/types.h"
@@ -208,6 +209,7 @@ int main(int argc, char **argv)
 	xdpt::BpfEngine::Config ec;
 	ec.window_ns = static_cast<uint64_t>(window_ms) * 1'000'000ULL;
 	xdpt::BpfEngine engine(skel.get(), ec);
+	xdpt::Detector detector;
 	xdpt::WindowSnapshot snap;
 
 	// Align window boundaries to the same epoch grid the kernel uses, so the
@@ -227,6 +229,21 @@ int main(int argc, char **argv)
 		engine.collect(now, snap);
 		xdpt::WindowReport rep = xdpt::build_report(snap);
 		print_line(snap, rep);
+
+		for (const xdpt::Alert &al : detector.evaluate(rep)) {
+			char ip[INET_ADDRSTRLEN] = "global";
+			if (al.saddr)
+				inet_ntop(AF_INET, &al.saddr, ip, sizeof ip);
+			std::printf("  ALERT [%s] %-14s %-15s %s\n",
+				    xdpt::severity_name(al.severity),
+				    xdpt::alert_kind_name(al.kind), ip, al.detail.c_str());
+			if (jf)
+				std::fprintf(jf, "{\"alert\":\"%s\",\"severity\":\"%s\",\"src\":\"%s\","
+					     "\"seq\":%llu,\"detail\":\"%s\"}\n",
+					     xdpt::alert_kind_name(al.kind), xdpt::severity_name(al.severity),
+					     ip, (unsigned long long)rep.seq, al.detail.c_str());
+		}
+		std::fflush(stdout);
 		if (jf)
 			print_jsonl(jf, snap);
 	}

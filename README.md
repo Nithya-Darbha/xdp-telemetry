@@ -13,7 +13,7 @@ Work in progress. Built phase by phase; the commit history shows each step.
 - [x] 4. BPF maps (flows, fan-out, histograms, events)
 - [x] 5. Userspace collector
 - [x] 6. Flow and statistical logic
-- [ ] 7. Anomaly detection
+- [x] 7. Anomaly detection
 - [ ] 8. AF_PACKET baseline
 - [ ] 9. Controlled experiments
 - [ ] 10. Tests and malformed packet validation
