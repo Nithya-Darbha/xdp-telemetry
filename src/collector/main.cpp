@@ -17,7 +17,10 @@
 #include <string_view>
 #include <unistd.h>
 
+#include <arpa/inet.h>
+
 #include "bpf_engine.h"
+#include "core/report.h"
 #include "core/snapshot.h"
 #include "shared/types.h"
 #include "telemetry.skel.h"
@@ -69,22 +72,34 @@ uint64_t mono_ns()
 	return static_cast<uint64_t>(ts.tv_sec) * 1'000'000'000ULL + ts.tv_nsec;
 }
 
-void print_line(const xdpt::WindowSnapshot &s)
+void print_line(const xdpt::WindowSnapshot &s, const xdpt::WindowReport &rep)
 {
-	auto r = [&](xdpt_counter c) {
-		return s.dt > 0 ? static_cast<double>(s.d(c)) / s.dt : 0.0;
-	};
 	uint64_t malformed = 0;
 	for (int p = XDPT_P_ERR_FIRST; p < XDPT_P__MAX; p++)
 		malformed += s.delta[XDPT_C_RESULT_BASE + p];
 
 	std::printf("w=%-4llu pps=%9.0f Mbit/s=%7.2f tcp=%llu udp=%llu icmp=%llu "
-		    "syn=%llu rst=%llu flows=%llu srcs=%zu ev=%zu malf=%llu collect=%.0fus\n",
-		    (unsigned long long)s.seq, r(XDPT_C_PKTS), r(XDPT_C_BYTES) * 8 / 1e6,
+		    "syn=%llu rst=%llu p50=%u p99=%u flows=%llu srcs=%zu ev=%zu malf=%llu "
+		    "collect=%.0fus\n",
+		    (unsigned long long)s.seq, rep.pps, rep.mbps,
 		    (unsigned long long)s.d(XDPT_C_TCP), (unsigned long long)s.d(XDPT_C_UDP),
 		    (unsigned long long)s.d(XDPT_C_ICMP), (unsigned long long)s.d(XDPT_C_SYN),
-		    (unsigned long long)s.d(XDPT_C_RST), (unsigned long long)s.active_flows,
-		    s.srcs.size(), s.events.size(), (unsigned long long)malformed, s.collect_us);
+		    (unsigned long long)s.d(XDPT_C_RST), rep.size_p50, rep.size_p99,
+		    (unsigned long long)s.active_flows, s.srcs.size(), s.events.size(),
+		    (unsigned long long)malformed, s.collect_us);
+
+	// Per-source fan-out, the raw material phase 7 turns into scan alerts.
+	for (const xdpt::SrcReport &sr : rep.srcs) {
+		if (sr.pkts < 20) // skip chatter; a real scan sends far more
+			continue;
+		char ip[INET_ADDRSTRLEN];
+		inet_ntop(AF_INET, &sr.saddr, ip, sizeof ip);
+		std::printf("    src %-15s pkts=%llu ports~%.0f%s ips~%.0f%s syn=%u bad_flags=%u\n",
+			    ip, (unsigned long long)sr.pkts,
+			    sr.distinct_ports, sr.ports_saturated ? "+" : "",
+			    sr.distinct_ips, sr.ips_saturated ? "+" : "",
+			    sr.syn, sr.bad_flags);
+	}
 	std::fflush(stdout);
 }
 
@@ -210,7 +225,8 @@ int main(int argc, char **argv)
 		next += ec.window_ns;
 
 		engine.collect(now, snap);
-		print_line(snap);
+		xdpt::WindowReport rep = xdpt::build_report(snap);
+		print_line(snap, rep);
 		if (jf)
 			print_jsonl(jf, snap);
 	}

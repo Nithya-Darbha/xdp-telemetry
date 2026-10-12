@@ -205,3 +205,33 @@ flows, which is the number phase 9 tracks as the collector grows.
 
 Output is a human line plus optional JSONL (`-j`), one flat object per window,
 hand-rolled with no JSON dependency. Phase 9's analysis reads the JSONL.
+
+## Flow and statistical logic (phase 6)
+
+Pure functions in `include/core/stats.h`, used by the collector and tested on
+their own. A `WindowReport` (`core/report.h`) is a snapshot plus the derived
+quantities detection consumes.
+
+**Fan-out from sketches: linear counting.** A source's distinct destination
+ports and IPs come from the set-bit count of its sketch:
+`n_hat = -m * ln(zeros / m)`. Accurate to a few percent while the sketch is
+under about 60% full, then it reads low, which is why scan thresholds sit far
+below the 1024-bit and 512-bit capacities. A fully set sketch is reported as
+saturated with a finite floor rather than `+inf`. The unit test fills the
+sketch with the *same* hash the XDP program uses, so it also proves the kernel
+and userspace agree bit for bit.
+
+**Rate baselines: EWMA.** `Ewma` keeps an exponentially weighted mean and
+variance (West's online form) so a per-source or global rate has something to
+be compared against. `zscore` has an absolute standard-deviation floor, so a
+dead-quiet baseline does not turn one packet into a huge anomaly. Detection
+(phase 7) keeps one `Ewma` per signal.
+
+**Size percentiles** come straight from the 64-byte histogram, with the last
+bucket treated as open-ended.
+
+**Heavy hitters** use `nth_element` then a sort of the top k, so the common
+case stays linear in the flow count.
+
+Both suites run under ASan and UBSan. The collector prints p50/p99 and a
+per-source fan-out line, which is the raw material phase 7 turns into alerts.

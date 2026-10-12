@@ -12,7 +12,7 @@ Work in progress. Built phase by phase; the commit history shows each step.
 - [x] 3. Verifier-safe packet parser
 - [x] 4. BPF maps (flows, fan-out, histograms, events)
 - [x] 5. Userspace collector
-- [ ] 6. Flow and statistical logic
+- [x] 6. Flow and statistical logic
 - [ ] 7. Anomaly detection
 - [ ] 8. AF_PACKET baseline
 - [ ] 9. Controlled experiments
@@ -59,7 +59,8 @@ If cmake can't find bpftool, pass `-DBPFTOOL=/path/to/bpftool`.
 ```
 bpf/              XDP program (C, compiled with clang -target bpf)
 include/shared/   structs shared by BPF and userspace
-core/ (headers)   WindowSnapshot: engine-independent telemetry for one window
+core/ (headers)   WindowSnapshot + stats + report (engine-independent)
+src/core/         report builder (links into xdpt and tests)
 src/collector/    skeleton loader + map/ringbuf reader (C++20)
 tests/            parser unit tests
 scripts/          environment check, netns topology

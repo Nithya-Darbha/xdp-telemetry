@@ -76,11 +76,15 @@ add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall> $<$<COMPILE_LANGUAGE:CXX>:-
 
 bpf_add_object(telemetry bpf/telemetry.bpf.c)
 
+# Engine-independent telemetry logic (snapshot stats, report). No libbpf.
+add_library(xdpt_core STATIC src/core/report.cpp)
+target_include_directories(xdpt_core PUBLIC include bpf)
+
 add_executable(xdpt
   src/collector/main.cpp
   src/collector/bpf_engine.cpp)
 target_include_directories(xdpt PRIVATE include bpf src/collector)
-target_link_libraries(xdpt PRIVATE telemetry_skel)
+target_link_libraries(xdpt PRIVATE telemetry_skel xdpt_core)
 
 # ---------------------------------------------------------------------------
 # Tests: parse.h compiled as userspace C++ under ASan/UBSan
@@ -93,4 +97,11 @@ if(XDPT_BUILD_TESTS)
   target_compile_options(parser_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(parser_test PRIVATE -fsanitize=address,undefined)
   add_test(NAME parser COMMAND parser_test)
+
+  # stats_test compiles report.cpp directly so the whole thing is sanitized.
+  add_executable(stats_test tests/stats_test.cpp src/core/report.cpp)
+  target_include_directories(stats_test PRIVATE include bpf)
+  target_compile_options(stats_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+  target_link_options(stats_test PRIVATE -fsanitize=address,undefined)
+  add_test(NAME stats COMMAND stats_test)
 endif()
