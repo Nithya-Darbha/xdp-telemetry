@@ -5,3 +5,4 @@ compile_commands.json
 .cache/
 __pycache__/
 bench/results/raw/
+.DS_Store
