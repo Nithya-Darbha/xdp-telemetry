@@ -86,6 +86,14 @@ add_executable(xdpt
 target_include_directories(xdpt PRIVATE include bpf src/collector)
 target_link_libraries(xdpt PRIVATE telemetry_skel xdpt_core)
 
+# AF_PACKET baseline: same core, no BPF. Benchmarked against xdpt.
+find_package(Threads REQUIRED)
+add_executable(xdpt-afp
+  src/afpacket/afp_main.cpp
+  src/afpacket/af_engine.cpp)
+target_include_directories(xdpt-afp PRIVATE include bpf src/afpacket)
+target_link_libraries(xdpt-afp PRIVATE xdpt_core Threads::Threads)
+
 # ---------------------------------------------------------------------------
 # Tests: parse.h compiled as userspace C++ under ASan/UBSan
 # ---------------------------------------------------------------------------
@@ -110,4 +118,11 @@ if(XDPT_BUILD_TESTS)
   target_compile_options(detect_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(detect_test PRIVATE -fsanitize=address,undefined)
   add_test(NAME detect COMMAND detect_test)
+
+  # Runs the real loaded program via BPF_PROG_TEST_RUN. Needs root; skips
+  # cleanly without it. No sanitizers (it loads BPF and links libbpf).
+  add_executable(xdp_test_run tests/xdp_test_run.cpp)
+  target_include_directories(xdp_test_run PRIVATE include bpf)
+  target_link_libraries(xdp_test_run PRIVATE telemetry_skel)
+  add_test(NAME xdp_prog COMMAND xdp_test_run)
 endif()

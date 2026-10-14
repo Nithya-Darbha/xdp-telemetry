@@ -111,14 +111,15 @@ void print_jsonl(std::FILE *f, const xdpt::WindowSnapshot &s)
 	for (int p = XDPT_P_ERR_FIRST; p < XDPT_P__MAX; p++)
 		malformed += s.delta[XDPT_C_RESULT_BASE + p];
 
+	double pps = s.dt > 0 ? double(s.d(XDPT_C_PKTS)) / s.dt : 0.0;
 	std::fprintf(f,
-		"{\"seq\":%llu,\"t\":%.6f,\"dt\":%.6f,\"pkts\":%llu,\"bytes\":%llu,"
+		"{\"seq\":%llu,\"t\":%.6f,\"dt\":%.6f,\"pps\":%.0f,\"pkts\":%llu,\"bytes\":%llu,"
 		"\"tcp\":%llu,\"udp\":%llu,\"icmp\":%llu,\"syn\":%llu,\"synack\":%llu,"
 		"\"rst\":%llu,\"fin\":%llu,\"frag\":%llu,\"malformed\":%llu,"
 		"\"ev_drop\":%llu,\"flow_fail\":%llu,\"src_fail\":%llu,"
 		"\"active_flows\":%llu,\"aged_flows\":%llu,\"n_srcs\":%zu,\"n_events\":%zu,"
-		"\"collect_us\":%.1f}\n",
-		(unsigned long long)s.seq, s.t_mono, s.dt,
+		"\"drops\":0,\"collect_us\":%.1f}\n",
+		(unsigned long long)s.seq, s.t_mono, s.dt, pps,
 		(unsigned long long)s.d(XDPT_C_PKTS), (unsigned long long)s.d(XDPT_C_BYTES),
 		(unsigned long long)s.d(XDPT_C_TCP), (unsigned long long)s.d(XDPT_C_UDP),
 		(unsigned long long)s.d(XDPT_C_ICMP), (unsigned long long)s.d(XDPT_C_SYN),

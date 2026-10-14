@@ -272,3 +272,63 @@ Verified live: an `nmap -sS` scan of 2000 ports produced a port-scan alert
 and both rate-spike alerts. Unit tests drive every rule from synthetic reports,
 including a clean-traffic case that must stay silent and a cold-start case that
 must not raise a rate spike.
+
+## AF_PACKET baseline (phase 8)
+
+`xdpt-afp` is the userspace capture path XDP is measured against. It must do
+the same work and differ only in where packets are grabbed, so it is built to
+be a strong baseline, not a strawman:
+
+* **TPACKET_V3 mmap rings**, not a `recvfrom` loop. Packets are read directly
+  from a shared ring of blocks the kernel fills, no per-packet syscall.
+* **PACKET_FANOUT (hash mode)** spreads load across `-t N` worker threads, each
+  with its own socket and ring. The kernel hashes each packet to one socket by
+  flow, so no frame is seen twice and a flow stays on one thread.
+* **The same `bpf/parse.h` and `bpf/sketch.h`** run on every frame, and each
+  worker fills the same per-source window and flow structures the BPF side
+  uses, so the fan-out sketches come out bit-identical.
+* The engine merges all workers into the same `WindowSnapshot`, so
+  `build_report` and the detector are literally the same code downstream.
+
+**Ingress only.** XDP on ingress sees inbound frames; AF_PACKET captures both
+directions by default. Without correction the baseline would also count the
+target's replies and the comparison would be unfair, so the socket sets
+`PACKET_IGNORE_OUTGOING`. Verified: on an identical `nmap -sS` of 2000 ports,
+both engines report tcp=2000, syn=2000, 2000 flows, one source, and the same
+port-scan estimate (~2045). Before the fix the baseline read tcp=4000 with the
+target as a second source, which is exactly the trap this avoids.
+
+**Lock-free hot path.** Each worker aggregates into its own maps with no
+locking; the engine merges them at window boundaries. Reading a worker's maps
+during merge is a benign race (a count may be mid-update), which is acceptable
+for a monitor and keeps the capture path free of contention, the whole reason
+to use fanout.
+
+What this baseline cannot escape, and the README says so: every packet still
+crosses into a userspace ring and is copied, which is the cost XDP avoids by
+running in the driver before an skb exists. Phase 9 measures that gap.
+
+## Tests and malformed validation (phase 10)
+
+Four suites run under `ctest`:
+
+* `parser` - `parse.h` on crafted frames, ASan/UBSan, frames placed at
+  NET_IP_ALIGN offset, every truncation of a QinQ+options packet must be
+  flagged malformed.
+* `stats` - linear counting (against the real sketch hash), EWMA, percentiles,
+  top-k.
+* `detect` - every detector rule from synthetic reports, plus a clean-traffic
+  case that must stay silent and a cold-start case that must not raise a rate
+  spike.
+* `xdp_prog` - **the real loaded bytecode** via `BPF_PROG_TEST_RUN`. Crafted
+  valid and malformed frames go straight into the verified program and the
+  outcome counter is checked. Needs root; skips cleanly without it.
+
+`BPF_PROG_TEST_RUN` is the only way to test the kernel program deterministically
+with no network. One limit it surfaced: the harness refuses input shorter than
+an Ethernet header, so `eth_trunc` cannot be reached even here and is covered by
+the userspace parser test. The test asserts that refusal rather than hiding it.
+
+Two layers on purpose: `parse.h` runs identically in userspace and in the
+kernel, so `parser` checks the logic fast and under sanitizers, while `xdp_prog`
+confirms the compiled-and-verified program behaves the same on the same inputs.

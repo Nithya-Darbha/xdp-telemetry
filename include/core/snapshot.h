@@ -51,6 +51,7 @@ struct WindowSnapshot {
 
 	uint64_t active_flows = 0;
 	uint64_t aged_flows = 0;   // evicted from the userspace view this window
+	uint64_t drops = 0;        // frames the capture path dropped this window
 	double   collect_us = 0;   // wall-clock cost of building this snapshot
 
 	uint64_t d(xdpt_counter c) const { return delta[c]; }
